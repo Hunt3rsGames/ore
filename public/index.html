@@ -1,0 +1,1766 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TimbraOre Live Pro - Calcolo Ore, Pausa e Previsione Uscita</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0284c7',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Font Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Vue.js 3 CDN -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        .dark ::-webkit-scrollbar-thumb {
+            background: #475569;
+        }
+
+        /* Live pulse animation for ongoing shifts */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.96); opacity: 0.8; }
+            50% { transform: scale(1.04); opacity: 1; }
+            100% { transform: scale(0.96); opacity: 0.8; }
+        }
+        .animate-live-pulse {
+            animation: pulse-ring 2s infinite ease-in-out;
+        }
+
+        /* Print styles optimization */
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+            .print-only {
+                display: block !important;
+            }
+            body {
+                background: white !important;
+                color: black !important;
+                font-size: 11px;
+            }
+            .card-print {
+                border: 1px solid #cbd5e1 !important;
+                box-shadow: none !important;
+                break-inside: avoid;
+                margin-bottom: 12px !important;
+                padding: 12px !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 min-h-screen transition-colors duration-200">
+
+    <div id="app" class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6">
+
+        <!-- Login / Registrazione -->
+        <div v-if="!user" class="no-print fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-50 dark:bg-slate-900">
+            <div v-if="!authChecked" class="text-slate-400 text-sm"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Caricamento...</div>
+            <form v-else @submit.prevent="submitAuth" class="w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 p-6 space-y-4">
+                <div class="flex items-center gap-3">
+                    <div class="p-3 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-xl shadow-md shadow-blue-500/20">
+                        <i class="fa-solid fa-business-time text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-extrabold text-slate-900 dark:text-white">TimbraOre</h1>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ authMode === 'register' ? 'Crea un nuovo account' : 'Accedi al tuo account' }}</p>
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <input v-model="authForm.username" type="text" autocomplete="username" autocapitalize="none" required placeholder="Username"
+                           class="w-full text-sm bg-slate-50 dark:bg-slate-700/80 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    <input v-model="authForm.password" type="password" :autocomplete="authMode === 'register' ? 'new-password' : 'current-password'" required minlength="8" placeholder="Password (min. 8 caratteri)"
+                           class="w-full text-sm bg-slate-50 dark:bg-slate-700/80 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                </div>
+
+                <p v-if="authError" class="text-xs text-red-600 dark:text-red-400"><i class="fa-solid fa-circle-exclamation mr-1"></i>{{ authError }}</p>
+
+                <button type="submit" :disabled="authBusy" class="w-full py-2.5 text-sm font-semibold bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl shadow-md transition">
+                    {{ authMode === 'register' ? 'Registrati' : 'Accedi' }}
+                </button>
+
+                <p v-if="allowRegistration" class="text-xs text-center text-slate-500 dark:text-slate-400">
+                    <template v-if="authMode === 'login'">Non hai un account? <a href="#" @click.prevent="authMode = 'register'; authError = ''" class="text-blue-600 dark:text-blue-400 font-semibold">Registrati</a></template>
+                    <template v-else>Hai già un account? <a href="#" @click.prevent="authMode = 'login'; authError = ''" class="text-blue-600 dark:text-blue-400 font-semibold">Accedi</a></template>
+                </p>
+            </form>
+        </div>
+
+        <!-- Top Header Navigation -->
+        <header class="no-print flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-white dark:bg-slate-800 p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200/80 dark:border-slate-700/80">
+            <div class="flex items-center space-x-3.5">
+                <div class="p-3 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-xl shadow-md shadow-blue-500/20">
+                    <i class="fa-solid fa-business-time text-2xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+                        TimbraOre <span class="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300 font-extrabold border border-blue-300/40">Live Pro 9h</span>
+                    </h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Target 9 ore lavorative + 45m pausa & Previsione Ora Uscita</p>
+                </div>
+            </div>
+
+            <!-- Current Time Ticker & Top Tools -->
+            <div class="flex items-center flex-wrap justify-center gap-2">
+                
+                <!-- Live Clock -->
+                <div class="px-3 py-1.5 bg-slate-100 dark:bg-slate-700/60 rounded-xl flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-600/60">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                    <i class="fa-regular fa-clock text-blue-500"></i>
+                    <span>Ora Attuale: <strong class="font-mono text-slate-900 dark:text-white">{{ currentLiveTimeString }}</strong></span>
+                </div>
+
+                <!-- Theme Toggle -->
+                <button @click="toggleTheme" class="p-2.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition" title="Cambia Tema">
+                    <i :class="isDark ? 'fa-solid fa-sun text-amber-400 text-lg' : 'fa-solid fa-moon text-slate-600 text-lg'"></i>
+                </button>
+
+                <!-- Print PDF Button -->
+                <button @click="printReport" class="px-3.5 py-2 text-sm font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl transition flex items-center gap-2">
+                    <i class="fa-solid fa-print"></i>
+                    <span class="hidden sm:inline">Stampa / PDF</span>
+                </button>
+
+                <!-- Data Export Dropdown -->
+                <div class="relative">
+                    <button @click="showExportMenu = !showExportMenu" class="px-3.5 py-2 text-sm font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl transition flex items-center gap-2">
+                        <i class="fa-solid fa-file-export"></i>
+                        <span class="hidden sm:inline">Esporta</span>
+                        <i class="fa-solid fa-chevron-down text-xs ml-0.5"></i>
+                    </button>
+                    <div v-if="showExportMenu" class="fixed inset-0 z-40" @click="showExportMenu = false"></div>
+                    <div v-if="showExportMenu" class="absolute right-0 mt-2 w-52 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 py-1.5 z-50">
+                        <button @click="exportCSV" class="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2.5 text-slate-700 dark:text-slate-200">
+                            <i class="fa-solid fa-file-csv text-emerald-600 text-base"></i> Esporta Foglio CSV
+                        </button>
+                        <button @click="exportJSON" class="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2.5 text-slate-700 dark:text-slate-200">
+                            <i class="fa-solid fa-file-code text-blue-600 text-base"></i> Scarica Backup JSON
+                        </button>
+                        <label class="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2.5 text-slate-700 dark:text-slate-200 cursor-pointer">
+                            <i class="fa-solid fa-file-import text-amber-600 text-base"></i> Ripristina da JSON
+                            <input type="file" @change="importJSON" accept=".json" class="hidden">
+                        </label>
+                    </div>
+                </div>
+
+                <!-- User / Logout -->
+                <div v-if="user" class="px-3 py-1.5 bg-slate-100 dark:bg-slate-700/60 rounded-xl flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-600/60">
+                    <i class="fa-solid fa-user text-blue-500"></i>
+                    <span>{{ user.username }}</span>
+                    <button @click="logout" class="ml-1 text-slate-500 hover:text-red-500 transition" title="Esci">
+                        <i class="fa-solid fa-right-from-bracket"></i>
+                    </button>
+                </div>
+
+                <!-- Settings Button -->
+                <button @click="openSettings = true" class="px-3.5 py-2 text-sm font-semibold bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-300 rounded-xl transition flex items-center gap-2">
+                    <i class="fa-solid fa-sliders"></i>
+                    <span class="hidden sm:inline">Impostazioni</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Toast Notifications -->
+        <div v-if="toastMessage" class="no-print fixed bottom-5 right-5 z-50 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-3 transition-all border border-slate-700/50">
+            <i class="fa-solid fa-circle-check text-emerald-400 dark:text-emerald-600 text-lg"></i>
+            <span class="text-sm font-medium">{{ toastMessage }}</span>
+        </div>
+
+        <!-- Confirmation Modal -->
+        <div v-if="confirmModal.open" class="no-print fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div class="bg-white dark:bg-slate-800 rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4 text-center">
+                <div class="w-12 h-12 rounded-full bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400 mx-auto flex items-center justify-center text-xl">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                </div>
+                <h3 class="text-lg font-bold text-slate-800 dark:text-slate-100">{{ confirmModal.title }}</h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400">{{ confirmModal.message }}</p>
+                <div class="flex items-center gap-3 pt-2">
+                    <button @click="confirmModal.open = false" class="flex-1 py-2 text-sm font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl">
+                        Annulla
+                    </button>
+                    <button @click="executeConfirmAction" class="flex-1 py-2 text-sm font-semibold bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-md">
+                        Conferma
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Weekly Selector & Stats Dashboard -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+            
+            <!-- Week Navigation Card (5 cols) -->
+            <div class="lg:col-span-5 bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200/80 dark:border-slate-700/80 flex flex-col justify-between space-y-4">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Settimana Selezionata</span>
+                    <button @click="goToCurrentWeek" class="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
+                        <i class="fa-solid fa-calendar-day"></i> Oggi / Corrente
+                    </button>
+                </div>
+                
+                <div class="flex items-center justify-between gap-2">
+                    <button @click="changeWeek(-1)" class="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl transition text-slate-700 dark:text-slate-200" title="Settimana Precedente">
+                        <i class="fa-solid fa-chevron-left text-sm"></i>
+                    </button>
+                    
+                    <div class="text-center">
+                        <div class="font-extrabold text-lg text-slate-800 dark:text-slate-100">
+                            {{ formattedWeekRange }}
+                        </div>
+                        <div class="text-xs font-medium text-slate-500 dark:text-slate-400">
+                            Settimana N° {{ currentWeekNumber }} del {{ currentYear }}
+                        </div>
+                    </div>
+
+                    <button @click="changeWeek(1)" class="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl transition text-slate-700 dark:text-slate-200" title="Settimana Successiva">
+                        <i class="fa-solid fa-chevron-right text-sm"></i>
+                    </button>
+                </div>
+
+                <!-- Jump to Date Picker -->
+                <div class="pt-3 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between text-xs">
+                    <span class="text-slate-500 dark:text-slate-400 font-medium">Vai a data specifica:</span>
+                    <input type="date" :value="selectedMonday" @change="onDatePickerChange" class="bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2.5 py-1 text-slate-700 dark:text-slate-200 font-medium focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+
+            <!-- Weekly Overview Cards (7 cols) -->
+            <div class="lg:col-span-7 bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200/80 dark:border-slate-700/80 flex flex-col justify-between space-y-4">
+                
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    
+                    <!-- Grand Total Hours -->
+                    <div class="p-3 bg-gradient-to-br from-blue-50 to-indigo-50/50 dark:from-blue-950/40 dark:to-indigo-950/20 rounded-xl border border-blue-100 dark:border-blue-900/50">
+                        <span class="block text-[11px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Totale Ore</span>
+                        <span class="text-xl font-extrabold text-blue-950 dark:text-blue-100 mt-0.5 block">
+                            {{ formatMinutesToHM(weeklyGrandTotalMinutes) }}
+                        </span>
+                        <span class="text-[11px] text-blue-600/80 dark:text-blue-300 font-mono font-semibold">
+                            {{ (weeklyGrandTotalMinutes / 60).toFixed(2) }}h
+                        </span>
+                    </div>
+
+                    <!-- Pause Total across the week -->
+                    <div class="p-3 bg-amber-50/60 dark:bg-amber-950/30 rounded-xl border border-amber-200/60 dark:border-amber-900/40">
+                        <span class="block text-[11px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">Pausa Totale</span>
+                        <span class="text-xl font-extrabold text-amber-950 dark:text-amber-100 mt-0.5 block">
+                            {{ formatMinutesToHM(weeklyPauseTotalMinutes) }}
+                        </span>
+                        <span class="text-[11px] text-amber-600 dark:text-amber-300 font-medium">
+                            Target: {{ targetDailyPauseMinutes }}m / giorno
+                        </span>
+                    </div>
+
+                    <!-- Overtime / Deficit Balance against 45h Target -->
+                    <div class="p-3 rounded-xl border" :class="overtimeMinutes >= 0 ? 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200/80 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300' : 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-200/80 dark:border-rose-900/50 text-rose-700 dark:text-rose-300'">
+                        <span class="block text-[11px] font-bold uppercase tracking-wider">
+                            {{ overtimeMinutes >= 0 ? 'Straordinari / +' : 'Mancanti / -' }}
+                        </span>
+                        <span class="text-xl font-extrabold mt-0.5 block">
+                            {{ formatMinutesToHM(Math.abs(overtimeMinutes)) }}
+                        </span>
+                        <span class="text-[11px] opacity-80 font-mono font-medium">
+                            ({{ (overtimeMinutes / 60).toFixed(2) }}h)
+                        </span>
+                    </div>
+
+                    <!-- Target Weekly Hours -->
+                    <div class="p-3 bg-slate-50 dark:bg-slate-700/40 rounded-xl border border-slate-200/60 dark:border-slate-700">
+                        <span class="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Target Settimana</span>
+                        <span class="text-xl font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">
+                            {{ targetWeeklyHours }}h 00m
+                        </span>
+                        <span class="text-[11px] text-slate-400 font-medium">5gg x {{ targetDailyHours }}h lavoro</span>
+                    </div>
+
+                </div>
+
+                <!-- Progress Bar -->
+                <div>
+                    <div class="flex justify-between items-center text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
+                        <span>Avanzamento Target Settimanale ({{ targetWeeklyHours }}h)</span>
+                        <span class="text-slate-800 dark:text-slate-200 font-bold">{{ weeklyProgressPercentage }}%</span>
+                    </div>
+                    <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-3 overflow-hidden p-0.5">
+                        <div class="bg-gradient-to-r from-blue-500 to-indigo-600 h-2 rounded-full transition-all duration-500" 
+                             :style="{ width: Math.min(weeklyProgressPercentage, 100) + '%' }" 
+                             :class="{'!from-emerald-500 !to-teal-500': weeklyProgressPercentage >= 100}">
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- Quick Action Toolbar -->
+        <div class="no-print bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-sm border border-slate-200/80 dark:border-slate-700/80 mb-6 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center space-x-3">
+                <div class="flex items-center space-x-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                    <i class="fa-solid fa-bolt-lightning text-amber-500 text-sm"></i>
+                    <span>Azioni Rapide:</span>
+                </div>
+
+                <!-- Live mode toggle switch -->
+                <label class="inline-flex items-center cursor-pointer ml-3 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    <input type="checkbox" v-model="includeLiveTime" @change="saveSettings" class="sr-only peer">
+                    <div class="relative w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                    <span class="ms-2">Include Turni In Corso (Tempo Reale)</span>
+                </label>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <button @click="fillStandardWeek" class="px-3 py-1.5 text-xs font-semibold bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-xl transition flex items-center gap-1.5 border border-blue-200/60 dark:border-blue-800/40">
+                    <i class="fa-solid fa-calendar-check text-blue-500"></i> Compila Lun-Ven Standard (9h + 45m Pausa)
+                </button>
+                <button @click="askClearCurrentWeek" class="px-3 py-1.5 text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 rounded-xl transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-trash-can"></i> Svuota Settimana
+                </button>
+            </div>
+        </div>
+
+        <!-- Printable Header (Visible only on print/PDF export) -->
+        <div class="hidden print-only mb-6">
+            <div class="flex justify-between items-center border-b pb-4 border-slate-300">
+                <div>
+                    <h1 class="text-2xl font-bold text-black">Scheda Timbrature e Ore Lavorate (Target 9h)</h1>
+                    <p class="text-xs text-slate-600">Settimana dal {{ formattedWeekRange }} - Stampato il {{ new Date().toLocaleDateString('it-IT') }}</p>
+                </div>
+                <div class="text-right text-xs">
+                    <p><strong>Totale Ore Lavorate:</strong> {{ formatMinutesToHM(weeklyGrandTotalMinutes) }} ({{ (weeklyGrandTotalMinutes/60).toFixed(2) }}h)</p>
+                    <p><strong>Totale Pausa:</strong> {{ formatMinutesToHM(weeklyPauseTotalMinutes) }} | <strong>Target Settimana:</strong> {{ targetWeeklyHours }}h</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Daily Cards List -->
+        <div class="space-y-5">
+            <div v-for="(day, index) in weekDays" :key="day.dateStr" 
+                 class="card-print bg-white dark:bg-slate-800 rounded-2xl shadow-sm border transition-all duration-200"
+                 :class="[
+                     isToday(day.dateStr) ? 'border-blue-500 ring-2 ring-blue-500/20 dark:ring-blue-500/30' : 'border-slate-200/80 dark:border-slate-700/80',
+                     day.grandTotalMinutes > 0 ? 'bg-white dark:bg-slate-800' : 'bg-slate-50/30 dark:bg-slate-800/40'
+                 ]">
+                
+                <div class="p-4 sm:p-5 space-y-4">
+                    
+                    <!-- Day Header: Title, Status Badges, Forecast & Totals -->
+                    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-700/60 pb-3">
+                        
+                        <!-- Day Icon & Date -->
+                        <div class="flex items-center space-x-3">
+                            <div class="w-12 h-12 rounded-xl flex flex-col items-center justify-center font-bold shadow-xs"
+                                 :class="isToday(day.dateStr) ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'">
+                                <span class="text-[10px] uppercase tracking-wider font-normal leading-tight">{{ day.dayNameShort }}</span>
+                                <span class="text-base leading-none">{{ day.dayNumber }}</span>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <h3 class="font-bold text-slate-900 dark:text-slate-100 capitalize">
+                                        {{ day.dayName }}
+                                    </h3>
+                                    
+                                    <!-- Dynamic Day Status Badge -->
+                                    <span class="px-2.5 py-0.5 text-[10px] font-extrabold rounded-full flex items-center gap-1"
+                                          :class="statusBadgeConfig(day).class">
+                                        <i :class="statusBadgeConfig(day).icon"></i>
+                                        <span>{{ statusBadgeConfig(day).text }}</span>
+                                    </span>
+                                </div>
+                                <p class="text-xs text-slate-400 dark:text-slate-400 font-medium">{{ day.formattedDate }}</p>
+                            </div>
+                        </div>
+
+                        <!-- Forecast Exit & Summary Badges for the Day -->
+                        <div class="flex items-center flex-wrap gap-2 text-xs">
+                            
+                            <!-- Exit Time Forecast Badge -->
+                            <div v-if="day.estimatedExitTime" 
+                                 class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold flex items-center gap-1.5 shadow-xs"
+                                 :title="'Orario stimato di uscita per completare ' + day.targetDailyHours + ' ore di lavoro con pausa di ' + day.targetDailyPauseMinutes + 'm'">
+                                <i class="fa-solid fa-bullseye text-amber-300"></i>
+                                <span>Previsione Uscita {{ day.targetDailyHours }}h: <strong class="font-mono underline decoration-amber-300 text-sm ml-0.5">{{ day.estimatedExitTime }}</strong></span>
+                            </div>
+
+                            <!-- Pause Duration Summary Badge -->
+                            <div class="px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 border"
+                                 :class="day.pauseMinutes >= day.targetDailyPauseMinutes ? 'bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/50' : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600'">
+                                <i class="fa-solid fa-mug-hot text-amber-600"></i>
+                                <span>Pausa: <strong>{{ formatMinutesToHM(day.pauseMinutes) }}</strong> / {{ day.targetDailyPauseMinutes }}m</span>
+                            </div>
+
+                            <!-- Grand Total Badge -->
+                            <div class="px-3 py-1 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-bold flex items-center gap-1.5 shadow-xs">
+                                <span>Lavoro Netto: {{ formatMinutesToHM(day.grandTotalMinutes) }}</span>
+                                <span class="font-mono text-[11px] opacity-80">({{ (day.grandTotalMinutes / 60).toFixed(2) }}h)</span>
+                            </div>
+
+                            <!-- Reset Day Button -->
+                            <button @click="clearDay(day)" class="no-print p-1.5 text-slate-400 hover:text-rose-500 rounded-lg transition ml-1" title="Svuota Giorno">
+                                <i class="fa-solid fa-xmark text-base"></i>
+                            </button>
+
+                        </div>
+
+                    </div>
+
+                    <!-- WARNING BANNERS FOR BREAK & TARGET HOURS -->
+                    <div v-if="getDailyWarnings(day).length > 0" class="flex flex-wrap gap-2">
+                        <div v-for="warn in getDailyWarnings(day)" :key="warn.text" 
+                             class="px-3 py-1 rounded-xl text-xs font-semibold flex items-center gap-1.5 border"
+                             :class="warn.class">
+                            <i :class="warn.icon"></i>
+                            <span>{{ warn.text }}</span>
+                        </div>
+                    </div>
+
+                    <!-- MAIN SHIFT INPUTS (Turno Principale) -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                                <i class="fa-solid fa-clock text-blue-500"></i> Turno Principale (Target {{ day.targetDailyHours }}h)
+                            </span>
+                            <div class="flex items-center space-x-2 no-print">
+                                <button @click="openDayConfigModal(day)" class="px-2.5 py-1 text-xs font-semibold bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/40 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded-lg border border-blue-200/80 dark:border-blue-800/60 transition flex items-center gap-1.5">
+                                    <i class="fa-solid fa-sliders text-blue-500"></i> Imposta Giornata ({{ day.targetDailyHours }}h + {{ day.targetDailyPauseMinutes }}m Pausa)
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Clock Inputs Grid -->
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+                            
+                            <!-- Entrata -->
+                            <div>
+                                <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                                    <i class="fa-solid fa-right-to-bracket text-emerald-500 mr-1"></i> Entrata
+                                </label>
+                                <div class="flex items-center">
+                                    <input type="time" v-model="day.startTime" @change="saveData" class="w-full text-sm font-semibold bg-slate-50 dark:bg-slate-700/80 border border-slate-200 dark:border-slate-600 rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                    <button @click="setCurrentTime(day, 'startTime')" class="no-print ml-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 p-1 transition" title="Ora Attuale">
+                                        <i class="fa-regular fa-clock text-xs"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Inizio Pausa -->
+                            <div>
+                                <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                                    <i class="fa-solid fa-utensils text-amber-500 mr-1"></i> Inizio Pausa
+                                </label>
+                                <div class="flex items-center">
+                                    <input type="time" v-model="day.breakStart" @change="saveData" class="w-full text-sm font-semibold bg-slate-50 dark:bg-slate-700/80 border border-slate-200 dark:border-slate-600 rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                    <button @click="setCurrentTime(day, 'breakStart')" class="no-print ml-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 p-1 transition" title="Ora Attuale">
+                                        <i class="fa-regular fa-clock text-xs"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Fine Pausa -->
+                            <div>
+                                <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                                    <i class="fa-solid fa-mug-hot text-amber-600 mr-1"></i> Fine Pausa
+                                </label>
+                                <div class="flex items-center">
+                                    <input type="time" v-model="day.breakEnd" @change="saveData" class="w-full text-sm font-semibold bg-slate-50 dark:bg-slate-700/80 border border-slate-200 dark:border-slate-600 rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                    <button @click="setCurrentTime(day, 'breakEnd')" class="no-print ml-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 p-1 transition" title="Ora Attuale">
+                                        <i class="fa-regular fa-clock text-xs"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Uscita -->
+                            <div>
+                                <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                                    <i class="fa-solid fa-right-from-bracket text-rose-500 mr-1"></i> Uscita
+                                </label>
+                                <div class="flex items-center">
+                                    <input type="time" v-model="day.endTime" @change="saveData" class="w-full text-sm font-semibold bg-slate-50 dark:bg-slate-700/80 border border-slate-200 dark:border-slate-600 rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                    <button @click="setCurrentTime(day, 'endTime')" class="no-print ml-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 p-1 transition" title="Ora Attuale">
+                                        <i class="fa-regular fa-clock text-xs"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- Progressive Breakdown Chips for Standard Shift -->
+                        <div v-if="day.blocks && day.blocks.length > 0" class="mt-2.5 flex flex-wrap items-center gap-2">
+                            <span class="text-[10px] uppercase tracking-wider font-bold text-slate-400">Dettaglio Parziale:</span>
+                            <div v-for="block in day.blocks" :key="block.label" 
+                                 class="px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 border"
+                                 :class="block.isLive ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-300' : 'bg-slate-100 border-slate-200 text-slate-700 dark:bg-slate-700/70 dark:border-slate-600 dark:text-slate-200'">
+                                <i :class="block.icon"></i>
+                                <span>{{ block.label }}: <strong>{{ formatMinutesToHM(block.minutes) }}</strong></span>
+                                <span class="text-[10px] opacity-75 font-mono">({{ block.timeRange }})</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- EXTRA CLOCK-INS SECTION (Timbrature / Interventi Extra) -->
+                    <div class="pt-3 border-t border-slate-100 dark:border-slate-700/60 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                                <i class="fa-solid fa-briefcase text-indigo-500"></i> Timbrature / Interventi Extra Fuori Sede
+                                <span v-if="day.extraSessions && day.extraSessions.length > 0" class="px-2 py-0.5 text-[10px] bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-300 font-bold rounded-full">
+                                    {{ day.extraSessions.length }}
+                                </span>
+                            </span>
+                            <button @click="addExtraSession(day)" class="no-print px-2.5 py-1 text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-lg border border-indigo-200/80 dark:border-indigo-800/60 transition flex items-center gap-1.5">
+                                <i class="fa-solid fa-plus text-xs"></i> Aggiungi Timbratura Extra
+                            </button>
+                        </div>
+
+                        <!-- Empty state -->
+                        <div v-if="!day.extraSessions || day.extraSessions.length === 0" class="text-xs text-slate-400 dark:text-slate-500 italic flex items-center gap-1.5 py-0.5">
+                            <i class="fa-regular fa-lightbulb"></i> Nessun intervento o timbratura extra registrata per questa giornata.
+                        </div>
+
+                        <!-- Extra Sessions List -->
+                        <div v-else class="space-y-2">
+                            <div v-for="(session, sIdx) in day.extraSessions" :key="session.id" 
+                                 class="p-2.5 bg-slate-50 dark:bg-slate-700/40 rounded-xl border border-slate-200/80 dark:border-slate-600/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                                
+                                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 w-full sm:w-auto flex-1">
+                                    <div>
+                                        <label class="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">Inizio Extra</label>
+                                        <div class="flex items-center">
+                                            <input type="time" v-model="session.startTime" @change="saveData" class="w-full text-xs font-semibold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1 text-slate-800 dark:text-slate-100 focus:ring-1 focus:ring-indigo-500">
+                                            <button @click="setExtraTime(session, 'startTime')" class="no-print ml-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1 transition" title="Ora Attuale">
+                                                <i class="fa-regular fa-clock text-xs"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">Fine Extra</label>
+                                        <div class="flex items-center">
+                                            <input type="time" v-model="session.endTime" @change="saveData" class="w-full text-xs font-semibold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1 text-slate-800 dark:text-slate-100 focus:ring-1 focus:ring-indigo-500">
+                                            <button @click="setExtraTime(session, 'endTime')" class="no-print ml-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1 transition" title="Ora Attuale">
+                                                <i class="fa-regular fa-clock text-xs"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-span-2 sm:col-span-1">
+                                        <label class="block text-[10px] font-semibold text-slate-500 dark:text-slate-400 mb-0.5">Motivo / Note Extra</label>
+                                        <input type="text" v-model="session.description" @change="saveData" placeholder="es. Reperibilità, Cliente X, Fuori sede" class="w-full text-xs bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2.5 py-1 text-slate-800 dark:text-slate-100 focus:ring-1 focus:ring-indigo-500">
+                                    </div>
+                                </div>
+
+                                <div class="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200 dark:border-slate-600">
+                                    <span class="px-2 py-1 text-xs font-bold rounded-lg bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 font-mono">
+                                        +{{ formatMinutesToHM(calculateSessionMinutes(session, day.dateStr)) }}
+                                    </span>
+
+                                    <button @click="removeExtraSession(day, sIdx)" class="no-print p-1.5 text-slate-400 hover:text-rose-500 rounded-lg transition" title="Rimuovi Extra">
+                                        <i class="fa-solid fa-trash-can text-xs"></i>
+                                    </button>
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DAILY NOTES / ANNOTATIONS -->
+                    <div class="pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                        <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1">
+                            <i class="fa-regular fa-note-sticky text-amber-500"></i> Note Giornaliere / Annotazioni
+                        </label>
+                        <input type="text" v-model="day.notes" @change="saveData" placeholder="Aggiungi una nota per questo giorno (es. Smartworking, Trasferta, Permesso)..." class="w-full text-xs bg-slate-50 dark:bg-slate-700/60 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-1.5 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- Day Configuration & Preset Modal -->
+        <div v-if="dayConfigModal.open" class="no-print fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+            <div class="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-5">
+                <div class="flex justify-between items-center border-b border-slate-100 dark:border-slate-700 pb-3">
+                    <h3 class="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                        <i class="fa-solid fa-sliders text-blue-600"></i> Imposta Giornata ({{ dayConfigModal.day?.dayName }})
+                    </h3>
+                    <button @click="dayConfigModal.open = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    <!-- Quick Presets -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1.5">Preset Rapidi</label>
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                            <button @click="applyPresetToModal(9, 45, '08:00', '12:30')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-lg text-left font-medium transition">
+                                ⚡ 9h + 45m Pausa (08:00 - 17:45)
+                            </button>
+                            <button @click="applyPresetToModal(8, 30, '08:30', '12:30')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-lg text-left font-medium transition">
+                                ⚡ 8h + 30m Pausa (08:30 - 17:00)
+                            </button>
+                            <button @click="applyPresetToModal(8, 60, '08:00', '12:00')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-lg text-left font-medium transition">
+                                ⚡ 8h + 1h Pausa (08:00 - 17:00)
+                            </button>
+                            <button @click="applyPresetToModal(4, 0, '08:00', '')" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-lg text-left font-medium transition">
+                                ⚡ 4h Mezza Giornata (No Pausa)
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Custom inputs -->
+                    <div class="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-slate-700">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                Ore Lavorative Target
+                            </label>
+                            <input type="number" step="0.5" v-model.number="dayConfigModal.workHours" min="1" max="24" class="w-full text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                Minuti di Pausa Target
+                            </label>
+                            <input type="number" step="5" v-model.number="dayConfigModal.pauseMinutes" min="0" max="240" class="w-full text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                Orario di Entrata
+                            </label>
+                            <input type="time" v-model="dayConfigModal.startTime" class="w-full text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                Inizio Pausa
+                            </label>
+                            <input type="time" v-model="dayConfigModal.breakStartTime" class="w-full text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100">
+                        </div>
+                    </div>
+
+                    <!-- Calculated Schedule Preview Box -->
+                    <div v-if="computedModalPreview" class="p-3 bg-blue-50/70 dark:bg-blue-950/40 rounded-xl border border-blue-200/60 dark:border-blue-900/50 text-xs text-blue-900 dark:text-blue-200 space-y-1">
+                        <div class="font-bold flex items-center gap-1.5 text-blue-700 dark:text-blue-400">
+                            <i class="fa-solid fa-calculator"></i> Anteprima Orario Generato:
+                        </div>
+                        <div class="grid grid-cols-2 gap-1 pt-1 font-mono">
+                            <span>Fine Pausa: <strong>{{ computedModalPreview.breakEnd }}</strong></span>
+                            <span>Uscita Prevista: <strong>{{ computedModalPreview.exitTime }}</strong></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-3 border-t border-slate-100 dark:border-slate-700 flex flex-wrap gap-2 justify-end">
+                    <button @click="saveDayConfig(false)" class="px-3 py-2 text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl transition">
+                        Salva Solo Target
+                    </button>
+                    <button @click="saveDayConfig(true)" class="px-4 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md transition">
+                        Salva & Genera Orari
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div v-if="openSettings" class="no-print fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+            <div class="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-5">
+                <div class="flex justify-between items-center border-b border-slate-100 dark:border-slate-700 pb-3">
+                    <h3 class="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                        <i class="fa-solid fa-sliders text-blue-600"></i> Impostazioni Target e Preset
+                    </h3>
+                    <button @click="openSettings = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                Target Ore Lavoro / Giorno
+                            </label>
+                            <input type="number" v-model.number="targetDailyHours" min="1" max="24" class="w-full text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                                Target Pausa (Minuti)
+                            </label>
+                            <input type="number" v-model.number="targetDailyPauseMinutes" min="0" max="180" class="w-full text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                            Target Settimanale (Ore)
+                        </label>
+                        <input type="number" v-model.number="targetWeeklyHours" min="1" max="100" class="w-full text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-blue-500">
+                        <p class="text-[11px] text-slate-400 mt-1">Valore predefinito: 45 ore (5 giorni x 9 ore lavorative).</p>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-slate-700">
+                        <div class="col-span-2 text-xs font-bold text-slate-700 dark:text-slate-300">Preset Giornaliero Rapido</div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">Entrata</label>
+                            <input type="time" v-model="presetStandard.start" class="w-full text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-slate-100">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">Uscita</label>
+                            <input type="time" v-model="presetStandard.end" class="w-full text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-slate-100">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">Inizio Pausa</label>
+                            <input type="time" v-model="presetStandard.breakStart" class="w-full text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-slate-100">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">Fine Pausa</label>
+                            <input type="time" v-model="presetStandard.breakEnd" class="w-full text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-slate-100">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-3 border-t border-slate-100 dark:border-slate-700 flex justify-end">
+                    <button @click="saveSettings" class="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md transition">
+                        Salva Impostazioni
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="no-print mt-12 text-center text-xs text-slate-400 dark:text-slate-500 py-4 border-t border-slate-200/60 dark:border-slate-800">
+            TimbraOre Live Pro &copy; {{ currentYear }} - Calcolo Giornaliero 9h Netto, Pausa 45m e Previsione Ora Uscita
+        </footer>
+
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    // Autenticazione
+                    user: null,
+                    authChecked: false,
+                    authMode: 'login',
+                    authForm: { username: '', password: '' },
+                    authError: '',
+                    authBusy: false,
+                    allowRegistration: false,
+                    syncError: false,
+
+                    // Monday date of the currently selected week
+                    selectedMondayDate: this.getMonday(new Date()),
+                    
+                    // Main reactive store key: YYYY-MM-DD
+                    timeTrackerData: {},
+                    
+                    // Configurations & Targets
+                    targetDailyHours: 9,           // Default daily net work
+                    targetDailyPauseMinutes: 45,  // Default pause
+                    targetWeeklyHours: 45,        // Weekly target
+                    includeLiveTime: true,        // Calculate ongoing shifts in real time
+                    
+                    presetStandard: {
+                        start: '08:00',
+                        breakStart: '12:30',
+                        breakEnd: '13:15',
+                        end: '17:45'
+                    },
+
+                    // Ticker state for real-time live clock
+                    nowTimestamp: new Date(),
+                    timerInterval: null,
+
+                    // UI States
+                    isDark: false,
+                    openSettings: false,
+                    showExportMenu: false,
+                    toastMessage: '',
+
+                    // Modal state
+                    confirmModal: {
+                        open: false,
+                        title: '',
+                        message: '',
+                        action: null
+                    },
+
+                    // Day Config Modal state
+                    dayConfigModal: {
+                        open: false,
+                        day: null,
+                        workHours: 9,
+                        pauseMinutes: 45,
+                        startTime: '08:00',
+                        breakStartTime: '12:30'
+                    }
+                }
+            },
+
+            computed: {
+                computedModalPreview() {
+                    const startM = this.timeToMinutes(this.dayConfigModal.startTime);
+                    if (startM === null) return null;
+
+                    const workM = (Number(this.dayConfigModal.workHours) || 0) * 60;
+                    const pauseM = Number(this.dayConfigModal.pauseMinutes) || 0;
+                    
+                    const bStartM = this.timeToMinutes(this.dayConfigModal.breakStartTime) || (startM + 270);
+                    const bEndM = bStartM + pauseM;
+                    const exitM = startM + workM + pauseM;
+
+                    return {
+                        breakStart: this.formatMinutesToTimeStr(bStartM),
+                        breakEnd: pauseM > 0 ? this.formatMinutesToTimeStr(bEndM) : 'Nessuna',
+                        exitTime: this.formatMinutesToTimeStr(exitM)
+                    };
+                },
+
+                currentLiveTimeString() {
+                    const h = String(this.nowTimestamp.getHours()).padStart(2, '0');
+                    const m = String(this.nowTimestamp.getMinutes()).padStart(2, '0');
+                    const s = String(this.nowTimestamp.getSeconds()).padStart(2, '0');
+                    return `${h}:${m}:${s}`;
+                },
+
+                currentNowMinutes() {
+                    return this.nowTimestamp.getHours() * 60 + this.nowTimestamp.getMinutes();
+                },
+
+                selectedMonday() {
+                    return this.formatDateISO(this.selectedMondayDate);
+                },
+
+                currentYear() {
+                    return this.selectedMondayDate.getFullYear();
+                },
+
+                currentWeekNumber() {
+                    const d = new Date(this.selectedMondayDate);
+                    d.setHours(0, 0, 0, 0);
+                    d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+                    const yearStart = new Date(d.getFullYear(), 0, 1);
+                    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+                },
+
+                // Array of 7 day objects with calculations
+                weekDays() {
+                    const days = [];
+                    const monday = new Date(this.selectedMondayDate);
+                    const dayNamesShort = ['LUN', 'MAR', 'MER', 'GIO', 'VEN', 'SAB', 'DOM'];
+                    const dayNames = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
+
+                    for (let i = 0; i < 7; i++) {
+                        const date = new Date(monday);
+                        date.setDate(monday.getDate() + i);
+                        const dateStr = this.formatDateISO(date);
+
+                        // Fetch or default
+                        const savedData = this.timeTrackerData[dateStr] || {
+                            startTime: '',
+                            breakStart: '',
+                            breakEnd: '',
+                            endTime: '',
+                            notes: '',
+                            extraSessions: [],
+                            targetDailyHours: null,
+                            targetDailyPauseMinutes: null
+                        };
+
+                        const dayTargetHours = (savedData.targetDailyHours !== undefined && savedData.targetDailyHours !== null && savedData.targetDailyHours !== '') 
+                            ? Number(savedData.targetDailyHours) 
+                            : this.targetDailyHours;
+
+                        const dayTargetPause = (savedData.targetDailyPauseMinutes !== undefined && savedData.targetDailyPauseMinutes !== null && savedData.targetDailyPauseMinutes !== '') 
+                            ? Number(savedData.targetDailyPauseMinutes) 
+                            : this.targetDailyPauseMinutes;
+
+                        // Progressive breakdown of standard shift
+                        const stdAnalysis = this.analyzeStandardShift(
+                            savedData.startTime,
+                            savedData.breakStart,
+                            savedData.breakEnd,
+                            savedData.endTime,
+                            dateStr
+                        );
+
+                        // Pause duration calculation
+                        const pauseM = this.calculatePauseMinutes(
+                            savedData.breakStart,
+                            savedData.breakEnd,
+                            dateStr
+                        );
+
+                        // Extra sessions calculation
+                        const extraSessions = savedData.extraSessions || [];
+                        const extraTotalM = extraSessions.reduce((sum, session) => sum + this.calculateSessionMinutes(session, dateStr), 0);
+
+                        const grandTotalM = stdAnalysis.totalMinutes + extraTotalM;
+
+                        // Estimated Departure Time for Target Daily Hours
+                        const estimatedExit = this.calculateEstimatedExitTime(
+                            savedData.startTime,
+                            savedData.breakStart,
+                            savedData.breakEnd,
+                            extraTotalM,
+                            dayTargetHours,
+                            dayTargetPause
+                        );
+
+                        days.push({
+                            dateObj: date,
+                            dateStr: dateStr,
+                            dayNameShort: dayNamesShort[i],
+                            dayName: dayNames[i],
+                            dayNumber: date.getDate(),
+                            formattedDate: date.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }),
+                            startTime: savedData.startTime || '',
+                            breakStart: savedData.breakStart || '',
+                            breakEnd: savedData.breakEnd || '',
+                            endTime: savedData.endTime || '',
+                            notes: savedData.notes || '',
+                            extraSessions: extraSessions,
+                            standardMinutes: stdAnalysis.totalMinutes,
+                            blocks: stdAnalysis.blocks,
+                            isComplete: stdAnalysis.isComplete,
+                            hasOpenShift: stdAnalysis.hasOpenShift,
+                            pauseMinutes: pauseM,
+                            extraTotalMinutes: extraTotalM,
+                            grandTotalMinutes: grandTotalM,
+                            estimatedExitTime: estimatedExit,
+                            targetDailyHours: dayTargetHours,
+                            targetDailyPauseMinutes: dayTargetPause
+                        });
+                    }
+
+                    return days;
+                },
+
+                formattedWeekRange() {
+                    if (this.weekDays.length === 0) return '';
+                    const first = this.weekDays[0].dateObj;
+                    const last = this.weekDays[6].dateObj;
+                    return `${first.getDate()} ${first.toLocaleDateString('it-IT', { month: 'short' })} - ${last.getDate()} ${last.toLocaleDateString('it-IT', { month: 'short', year: 'numeric' })}`;
+                },
+
+                weeklyStandardTotalMinutes() {
+                    return this.weekDays.reduce((acc, day) => acc + day.standardMinutes, 0);
+                },
+
+                weeklyExtraTotalMinutes() {
+                    return this.weekDays.reduce((acc, day) => acc + day.extraTotalMinutes, 0);
+                },
+
+                weeklyPauseTotalMinutes() {
+                    return this.weekDays.reduce((acc, day) => acc + day.pauseMinutes, 0);
+                },
+
+                weeklyGrandTotalMinutes() {
+                    return this.weeklyStandardTotalMinutes + this.weeklyExtraTotalMinutes;
+                },
+
+                overtimeMinutes() {
+                    const targetMinutes = this.targetWeeklyHours * 60;
+                    return this.weeklyGrandTotalMinutes - targetMinutes;
+                },
+
+                weeklyProgressPercentage() {
+                    const targetMinutes = this.targetWeeklyHours * 60;
+                    if (!targetMinutes) return 0;
+                    return Math.round((this.weeklyGrandTotalMinutes / targetMinutes) * 100);
+                }
+            },
+
+            created() {
+                this.initTheme();
+                this.initAuth();
+                // Live ticker interval every second
+                this.timerInterval = setInterval(() => {
+                    this.nowTimestamp = new Date();
+                }, 1000);
+            },
+
+            beforeUnmount() {
+                if (this.timerInterval) clearInterval(this.timerInterval);
+            },
+
+            methods: {
+                getMonday(d) {
+                    const date = new Date(d);
+                    const day = date.getDay();
+                    const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+                    const monday = new Date(date.setDate(diff));
+                    monday.setHours(0, 0, 0, 0);
+                    return monday;
+                },
+
+                formatDateISO(date) {
+                    const y = date.getFullYear();
+                    const m = String(date.getMonth() + 1).padStart(2, '0');
+                    const d = String(date.getDate()).padStart(2, '0');
+                    return `${y}-${m}-${d}`;
+                },
+
+                timeToMinutes(timeStr) {
+                    if (!timeStr) return null;
+                    const [h, m] = timeStr.split(':').map(Number);
+                    if (isNaN(h) || isNaN(m)) return null;
+                    return h * 60 + m;
+                },
+
+                formatMinutesToHM(totalMinutes) {
+                    if (!totalMinutes || totalMinutes <= 0) return '0h 00m';
+                    const h = Math.floor(totalMinutes / 60);
+                    const m = totalMinutes % 60;
+                    return `${h}h ${String(m).padStart(2, '0')}m`;
+                },
+
+                formatMinutesToTimeStr(totalMinutes) {
+                    if (totalMinutes === null || totalMinutes === undefined) return '';
+                    let normalized = totalMinutes % 1440;
+                    if (normalized < 0) normalized += 1440;
+                    const h = String(Math.floor(normalized / 60)).padStart(2, '0');
+                    const m = String(normalized % 60).padStart(2, '0');
+                    return `${h}:${m}`;
+                },
+
+                isToday(dateStr) {
+                    return dateStr === this.formatDateISO(new Date());
+                },
+
+                // Calculate daily pause minutes
+                calculatePauseMinutes(breakStart, breakEnd, dateStr) {
+                    const bStartM = this.timeToMinutes(breakStart);
+                    const bEndM = this.timeToMinutes(breakEnd);
+
+                    if (bStartM !== null && bEndM !== null && bEndM >= bStartM) {
+                        return bEndM - bStartM;
+                    }
+
+                    // Live pause counting if break started but not ended today
+                    if (bStartM !== null && bEndM === null && this.includeLiveTime && this.isToday(dateStr)) {
+                        const nowM = this.currentNowMinutes;
+                        if (nowM > bStartM) return nowM - bStartM;
+                    }
+
+                    return 0;
+                },
+
+                // ESTIMATED EXIT TIME CALCULATION FOR TARGET DAILY HOURS
+                calculateEstimatedExitTime(start, breakStart, breakEnd, extraMinutes, targetHours, targetPause) {
+                    const startM = this.timeToMinutes(start);
+                    if (startM === null) return null;
+
+                    const effectiveTargetHours = (targetHours !== undefined && targetHours !== null) ? targetHours : this.targetDailyHours;
+                    const effectiveTargetPause = (targetPause !== undefined && targetPause !== null) ? targetPause : this.targetDailyPauseMinutes;
+
+                    const targetWorkM = effectiveTargetHours * 60;
+                    
+                    // Extra hours subtract from remaining regular work needed
+                    const regularNeededM = Math.max(0, targetWorkM - (extraMinutes || 0));
+
+                    const bStartM = this.timeToMinutes(breakStart);
+                    const bEndM = this.timeToMinutes(breakEnd);
+
+                    let effectivePauseM = effectiveTargetPause;
+
+                    if (bStartM !== null && bEndM !== null && bEndM >= bStartM) {
+                        effectivePauseM = bEndM - bStartM; // Actual pause taken
+                    } else if (bStartM !== null && bEndM === null) {
+                        // Pause in progress: count at least target or actual elapsed
+                        const elapsedPause = Math.max(0, this.currentNowMinutes - bStartM);
+                        effectivePauseM = Math.max(effectiveTargetPause, elapsedPause);
+                    }
+
+                    const exitTimeM = startM + regularNeededM + effectivePauseM;
+                    return this.formatMinutesToTimeStr(exitTimeM);
+                },
+
+                // Dynamic warnings generator for break and hours target
+                getDailyWarnings(day) {
+                    const warnings = [];
+                    const targetWorkM = (day.targetDailyHours || this.targetDailyHours) * 60;
+                    const targetPauseM = (day.targetDailyPauseMinutes !== undefined && day.targetDailyPauseMinutes !== null) ? day.targetDailyPauseMinutes : this.targetDailyPauseMinutes;
+
+                    // 1. BREAK WARNINGS
+                    if (day.startTime && (day.breakStart || day.endTime)) {
+                        if (targetPauseM > 0 && day.pauseMinutes > 0 && day.pauseMinutes < targetPauseM && (day.breakEnd || day.endTime)) {
+                            warnings.push({
+                                text: `Pausa di ${day.pauseMinutes}m (inferiore ai ${targetPauseM}m previsti)`,
+                                icon: 'fa-solid fa-triangle-exclamation text-amber-500',
+                                class: 'bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+                            });
+                        } else if (targetPauseM > 0 && !day.breakStart && day.grandTotalMinutes >= 360) {
+                            warnings.push({
+                                text: `Nessuna pausa registrata (consigliati almeno ${targetPauseM}m per turno >6h)`,
+                                icon: 'fa-solid fa-circle-exclamation text-amber-600',
+                                class: 'bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+                            });
+                        } else if (targetPauseM > 0 && day.pauseMinutes >= targetPauseM) {
+                            warnings.push({
+                                text: `Pausa Regolare (${this.formatMinutesToHM(day.pauseMinutes)})`,
+                                icon: 'fa-solid fa-circle-check text-emerald-500',
+                                class: 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                            });
+                        }
+                    }
+
+                    // 2. TARGET WORK HOURS WARNINGS
+                    if (day.endTime || day.isComplete || (day.grandTotalMinutes >= targetWorkM)) {
+                        if (day.grandTotalMinutes < targetWorkM) {
+                            const diff = targetWorkM - day.grandTotalMinutes;
+                            warnings.push({
+                                text: `Mancano ${this.formatMinutesToHM(diff)} al target di ${day.targetDailyHours}h`,
+                                icon: 'fa-solid fa-circle-minus text-rose-500',
+                                class: 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800'
+                            });
+                        } else if (day.grandTotalMinutes === targetWorkM) {
+                            warnings.push({
+                                text: `Target ${day.targetDailyHours}h Completato Perfettamente`,
+                                icon: 'fa-solid fa-star text-amber-500',
+                                class: 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800'
+                            });
+                        } else {
+                            const extra = day.grandTotalMinutes - targetWorkM;
+                            warnings.push({
+                                text: `Straordinario Giornaliero: +${this.formatMinutesToHM(extra)}`,
+                                icon: 'fa-solid fa-award text-emerald-500',
+                                class: 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+                            });
+                        }
+                    }
+
+                    return warnings;
+                },
+
+                // Progressive shift analysis
+                analyzeStandardShift(start, breakStart, breakEnd, end, dateStr) {
+                    const startM = this.timeToMinutes(start);
+                    const breakStartM = this.timeToMinutes(breakStart);
+                    const breakEndM = this.timeToMinutes(breakEnd);
+                    const endM = this.timeToMinutes(end);
+
+                    const blocks = [];
+                    let totalMinutes = 0;
+                    let isComplete = false;
+                    let hasOpenShift = false;
+                    const isTodayDay = this.isToday(dateStr);
+                    const nowM = this.currentNowMinutes;
+
+                    // Closed Morning Block (Entrata -> Inizio Pausa)
+                    if (startM !== null && breakStartM !== null && breakStartM > startM) {
+                        const m = breakStartM - startM;
+                        totalMinutes += m;
+                        blocks.push({
+                            label: 'Mattina',
+                            minutes: m,
+                            timeRange: `${start} - ${breakStart}`,
+                            icon: 'fa-solid fa-sun text-amber-500',
+                            isLive: false
+                        });
+                    }
+
+                    // Closed Afternoon Block (Fine Pausa -> Uscita)
+                    if (breakEndM !== null && endM !== null && endM > breakEndM) {
+                        const m = endM - breakEndM;
+                        totalMinutes += m;
+                        blocks.push({
+                            label: 'Pomeriggio',
+                            minutes: m,
+                            timeRange: `${breakEnd} - ${end}`,
+                            icon: 'fa-solid fa-cloud-sun text-indigo-500',
+                            isLive: false
+                        });
+                    }
+
+                    // Closed Continuous Shift (Entrata -> Uscita without break)
+                    if (startM !== null && endM !== null && breakStartM === null && breakEndM === null && endM > startM) {
+                        const m = endM - startM;
+                        totalMinutes += m;
+                        blocks.push({
+                            label: 'Turno Continuato',
+                            minutes: m,
+                            timeRange: `${start} - ${end}`,
+                            icon: 'fa-solid fa-clock text-blue-500',
+                            isLive: false
+                        });
+                        isComplete = true;
+                    }
+
+                    if (startM !== null && breakStartM !== null && breakEndM !== null && endM !== null) {
+                        isComplete = true;
+                    }
+
+                    // LIVE OPEN SHIFT CALCULATIONS
+                    if (this.includeLiveTime && isTodayDay) {
+                        
+                        // Morning / Continuous in progress
+                        if (startM !== null && breakStartM === null && endM === null) {
+                            if (nowM > startM) {
+                                const liveM = nowM - startM;
+                                totalMinutes += liveM;
+                                blocks.push({
+                                    label: 'Turno In Corso',
+                                    minutes: liveM,
+                                    timeRange: `dalle ${start}`,
+                                    icon: 'fa-solid fa-spinner animate-spin text-blue-500',
+                                    isLive: true
+                                });
+                            }
+                            hasOpenShift = true;
+                        }
+
+                        // Afternoon in progress
+                        if (breakEndM !== null && endM === null) {
+                            if (nowM > breakEndM) {
+                                const liveM = nowM - breakEndM;
+                                totalMinutes += liveM;
+                                blocks.push({
+                                    label: 'Pomeriggio In Corso',
+                                    minutes: liveM,
+                                    timeRange: `dalle ${breakEnd}`,
+                                    icon: 'fa-solid fa-spinner animate-spin text-indigo-500',
+                                    isLive: true
+                                });
+                            }
+                            hasOpenShift = true;
+                        }
+
+                    }
+
+                    return {
+                        totalMinutes,
+                        blocks,
+                        isComplete,
+                        hasOpenShift
+                    };
+                },
+
+                // Calculate extra session duration
+                calculateSessionMinutes(session, dateStr) {
+                    if (!session || !session.startTime) return 0;
+                    const sM = this.timeToMinutes(session.startTime);
+                    const eM = this.timeToMinutes(session.endTime);
+
+                    if (sM === null) return 0;
+
+                    if (eM !== null && eM >= sM) {
+                        return eM - sM;
+                    }
+
+                    if (eM === null && this.includeLiveTime && this.isToday(dateStr)) {
+                        const nowM = this.currentNowMinutes;
+                        if (nowM > sM) return nowM - sM;
+                    }
+
+                    return 0;
+                },
+
+                statusBadgeConfig(day) {
+                    if (day.hasOpenShift) {
+                        return {
+                            text: 'IN CORSO',
+                            class: 'bg-blue-100 text-blue-800 dark:bg-blue-950/80 dark:text-blue-300 animate-live-pulse border border-blue-300 dark:border-blue-700',
+                            icon: 'fa-solid fa-spinner animate-spin'
+                        };
+                    }
+                    if (day.isComplete) {
+                        return {
+                            text: 'COMPLETATO',
+                            class: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300/60 dark:border-emerald-800',
+                            icon: 'fa-solid fa-circle-check'
+                        };
+                    }
+                    if (day.grandTotalMinutes > 0) {
+                        return {
+                            text: `PARZIALE (${this.formatMinutesToHM(day.grandTotalMinutes)})`,
+                            class: 'bg-amber-100 text-amber-900 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300/60 dark:border-amber-800',
+                            icon: 'fa-solid fa-hourglass-half'
+                        };
+                    }
+                    return {
+                        text: 'NON INIZIATO',
+                        class: 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400',
+                        icon: 'fa-regular fa-circle'
+                    };
+                },
+
+                changeWeek(offset) {
+                    const newMonday = new Date(this.selectedMondayDate);
+                    newMonday.setDate(newMonday.getDate() + (offset * 7));
+                    this.selectedMondayDate = newMonday;
+                },
+
+                goToCurrentWeek() {
+                    this.selectedMondayDate = this.getMonday(new Date());
+                },
+
+                onDatePickerChange(e) {
+                    if (e.target.value) {
+                        this.selectedMondayDate = this.getMonday(new Date(e.target.value));
+                    }
+                },
+
+                setCurrentTime(day, field) {
+                    const now = new Date();
+                    const hours = String(now.getHours()).padStart(2, '0');
+                    const minutes = String(now.getMinutes()).padStart(2, '0');
+                    day[field] = `${hours}:${minutes}`;
+                    this.saveData();
+                    this.showToast('Ora impostata');
+                },
+
+                setExtraTime(session, field) {
+                    const now = new Date();
+                    const hours = String(now.getHours()).padStart(2, '0');
+                    const minutes = String(now.getMinutes()).padStart(2, '0');
+                    session[field] = `${hours}:${minutes}`;
+                    this.saveData();
+                    this.showToast('Ora extra impostata');
+                },
+
+                addExtraSession(day) {
+                    if (!day.extraSessions) {
+                        day.extraSessions = [];
+                    }
+                    day.extraSessions.push({
+                        id: Date.now() + Math.random().toString(36).substring(2, 7),
+                        startTime: '',
+                        endTime: '',
+                        description: ''
+                    });
+                    this.saveData();
+                    this.showToast('Intervento extra aggiunto');
+                },
+
+                removeExtraSession(day, index) {
+                    day.extraSessions.splice(index, 1);
+                    this.saveData();
+                    this.showToast('Intervento rimosso');
+                },
+
+                applyStandardDay(day) {
+                    day.startTime = this.presetStandard.start;
+                    day.breakStart = this.presetStandard.breakStart;
+                    day.breakEnd = this.presetStandard.breakEnd;
+                    day.endTime = this.presetStandard.end;
+                    this.saveData();
+                    this.showToast('Preset 9h + 45m pausa applicato');
+                },
+
+                openDayConfigModal(day) {
+                    this.dayConfigModal.day = day;
+                    this.dayConfigModal.workHours = day.targetDailyHours !== undefined ? day.targetDailyHours : this.targetDailyHours;
+                    this.dayConfigModal.pauseMinutes = day.targetDailyPauseMinutes !== undefined ? day.targetDailyPauseMinutes : this.targetDailyPauseMinutes;
+                    this.dayConfigModal.startTime = day.startTime || this.presetStandard.start || '08:00';
+                    this.dayConfigModal.breakStartTime = day.breakStart || this.presetStandard.breakStart || '12:30';
+                    this.dayConfigModal.open = true;
+                },
+
+                applyPresetToModal(hours, pauseMins, start, breakStart) {
+                    this.dayConfigModal.workHours = hours;
+                    this.dayConfigModal.pauseMinutes = pauseMins;
+                    if (start) this.dayConfigModal.startTime = start;
+                    if (breakStart) this.dayConfigModal.breakStartTime = breakStart;
+                },
+
+                saveDayConfig(generateSchedule = true) {
+                    const day = this.dayConfigModal.day;
+                    if (!day) return;
+
+                    day.targetDailyHours = this.dayConfigModal.workHours;
+                    day.targetDailyPauseMinutes = this.dayConfigModal.pauseMinutes;
+
+                    if (generateSchedule) {
+                        const startM = this.timeToMinutes(this.dayConfigModal.startTime) || 480;
+                        const pauseMins = Number(this.dayConfigModal.pauseMinutes) || 0;
+                        const workMins = Number(this.dayConfigModal.workHours) * 60;
+
+                        day.startTime = this.dayConfigModal.startTime;
+
+                        if (pauseMins > 0) {
+                            const bStartM = this.timeToMinutes(this.dayConfigModal.breakStartTime) || (startM + 270);
+                            const bEndM = bStartM + pauseMins;
+                            const exitM = startM + workMins + pauseMins;
+
+                            day.breakStart = this.formatMinutesToTimeStr(bStartM);
+                            day.breakEnd = this.formatMinutesToTimeStr(bEndM);
+                            day.endTime = this.formatMinutesToTimeStr(exitM);
+                        } else {
+                            day.breakStart = '';
+                            day.breakEnd = '';
+                            day.endTime = this.formatMinutesToTimeStr(startM + workMins);
+                        }
+                    }
+
+                    this.saveData();
+                    this.dayConfigModal.open = false;
+                    this.showToast(`Impostazioni per ${day.dayName} salvate`);
+                },
+
+                saveData() {
+                    this.weekDays.forEach(day => {
+                        this.timeTrackerData[day.dateStr] = {
+                            startTime: day.startTime,
+                            breakStart: day.breakStart,
+                            breakEnd: day.breakEnd,
+                            endTime: day.endTime,
+                            notes: day.notes,
+                            extraSessions: day.extraSessions || [],
+                            targetDailyHours: day.targetDailyHours,
+                            targetDailyPauseMinutes: day.targetDailyPauseMinutes
+                        };
+                    });
+
+                    this.pushData();
+                },
+
+                saveSettings() {
+                    const settings = {
+                        targetDailyHours: this.targetDailyHours,
+                        targetDailyPauseMinutes: this.targetDailyPauseMinutes,
+                        targetWeeklyHours: this.targetWeeklyHours,
+                        includeLiveTime: this.includeLiveTime,
+                        presetStandard: this.presetStandard
+                    };
+                    this.pushSettings(settings);
+                    this.openSettings = false;
+                    this.showToast('Impostazioni salvate');
+                },
+
+                clearDay(day) {
+                    day.startTime = '';
+                    day.breakStart = '';
+                    day.breakEnd = '';
+                    day.endTime = '';
+                    day.notes = '';
+                    day.extraSessions = [];
+                    day.targetDailyHours = null;
+                    day.targetDailyPauseMinutes = null;
+                    this.saveData();
+                    this.showToast(`Giornata di ${day.dayName} svuotata`);
+                },
+
+                fillStandardWeek() {
+                    this.weekDays.slice(0, 5).forEach(day => {
+                        day.startTime = this.presetStandard.start;
+                        day.breakStart = this.presetStandard.breakStart;
+                        day.breakEnd = this.presetStandard.breakEnd;
+                        day.endTime = this.presetStandard.end;
+                    });
+                    this.saveData();
+                    this.showToast('Compilata settimana Lun-Ven con orario standard');
+                },
+
+                askClearCurrentWeek() {
+                    this.confirmModal.title = 'Svuotare l\'intera settimana?';
+                    this.confirmModal.message = 'Tutte le timbrature e gli interventi extra della settimana corrente verranno cancellati.';
+                    this.confirmModal.action = () => {
+                        this.weekDays.forEach(day => {
+                            day.startTime = '';
+                            day.breakStart = '';
+                            day.breakEnd = '';
+                            day.endTime = '';
+                            day.notes = '';
+                            day.extraSessions = [];
+                        });
+                        this.saveData();
+                        this.showToast('Settimana svuotata');
+                    };
+                    this.confirmModal.open = true;
+                },
+
+                executeConfirmAction() {
+                    if (typeof this.confirmModal.action === 'function') {
+                        this.confirmModal.action();
+                    }
+                    this.confirmModal.open = false;
+                },
+
+                // ---------- API / Autenticazione ----------
+                async api(method, url, body) {
+                    const res = await fetch(url, {
+                        method,
+                        headers: body ? { 'Content-Type': 'application/json' } : {},
+                        body: body ? JSON.stringify(body) : undefined,
+                        credentials: 'same-origin'
+                    });
+                    let json = {};
+                    try { json = await res.json(); } catch (e) {}
+                    if (res.status === 401 && this.user && !url.includes('/login')) {
+                        this.user = null; // sessione scaduta
+                    }
+                    if (!res.ok) {
+                        const err = new Error(json.error || 'Errore di rete');
+                        err.status = res.status;
+                        err.body = json;
+                        throw err;
+                    }
+                    return json;
+                },
+
+                async initAuth() {
+                    try {
+                        const me = await this.api('GET', '/api/me');
+                        this.allowRegistration = me.allowRegistration;
+                        this.user = me.user;
+                        await this.loadFromServer();
+                    } catch (e) {
+                        if (e.body && e.body.allowRegistration !== undefined) this.allowRegistration = e.body.allowRegistration;
+                    } finally {
+                        this.authChecked = true;
+                    }
+                },
+
+                async submitAuth() {
+                    this.authError = '';
+                    this.authBusy = true;
+                    try {
+                        const url = this.authMode === 'register' ? '/api/register' : '/api/login';
+                        const res = await this.api('POST', url, this.authForm);
+                        this.user = res.user;
+                        this.authForm.password = '';
+                        await this.loadFromServer();
+                    } catch (e) {
+                        this.authError = e.message;
+                    } finally {
+                        this.authBusy = false;
+                    }
+                },
+
+                async logout() {
+                    try { await this.api('POST', '/api/logout'); } catch (e) {}
+                    this.user = null;
+                    this.timeTrackerData = {};
+                    this.authForm = { username: '', password: '' };
+                    this.authMode = 'login';
+                },
+
+                async loadFromServer() {
+                    const res = await this.api('GET', '/api/data');
+                    this.timeTrackerData = res.data || {};
+
+                    if (res.settings) {
+                        this.applySettings(res.settings);
+                    }
+
+                    // Prima volta sul server: importa i dati eventualmente presenti nel browser (versione precedente)
+                    const serverEmpty = Object.keys(this.timeTrackerData).length === 0 && !res.settings;
+                    if (serverEmpty) this.migrateFromLocalStorage();
+                },
+
+                applySettings(parsed) {
+                    this.targetDailyHours = parsed.targetDailyHours || 9;
+                    this.targetDailyPauseMinutes = parsed.targetDailyPauseMinutes || 45;
+                    this.targetWeeklyHours = parsed.targetWeeklyHours || 45;
+                    if (parsed.includeLiveTime !== undefined) this.includeLiveTime = parsed.includeLiveTime;
+                    if (parsed.presetStandard) this.presetStandard = parsed.presetStandard;
+                },
+
+                migrateFromLocalStorage() {
+                    let migrated = false;
+                    try {
+                        const savedData = localStorage.getItem('timbraore_v4_data') || localStorage.getItem('timbraore_v3_data');
+                        if (savedData) {
+                            const parsed = JSON.parse(savedData);
+                            if (parsed && Object.keys(parsed).length) {
+                                this.timeTrackerData = parsed;
+                                this.pushData();
+                                migrated = true;
+                            }
+                        }
+                        const savedSettings = localStorage.getItem('timbraore_v4_settings') || localStorage.getItem('timbraore_v3_settings');
+                        if (savedSettings) {
+                            const parsed = JSON.parse(savedSettings);
+                            this.applySettings(parsed);
+                            this.pushSettings(parsed);
+                            migrated = true;
+                        }
+                    } catch (e) {
+                        console.error('Errore migrazione dati locali', e);
+                    }
+                    if (migrated) this.showToast('Dati locali importati nel tuo account');
+                },
+
+                async pushData() {
+                    if (!this.user) return;
+                    try {
+                        await this.api('PUT', '/api/data', { data: this.timeTrackerData });
+                        this.syncError = false;
+                    } catch (e) {
+                        this.syncError = true;
+                        this.showToast('Errore di salvataggio sul server');
+                    }
+                },
+
+                async pushSettings(settings) {
+                    if (!this.user) return;
+                    try {
+                        await this.api('PUT', '/api/settings', { settings });
+                    } catch (e) {
+                        this.showToast('Errore di salvataggio impostazioni');
+                    }
+                },
+
+                exportCSV() {
+                    let csvContent = "data:text/csv;charset=utf-8,Giorno,Data,Entrata,Inizio Pausa,Fine Pausa,Uscita,Durata Pausa (HH:MM),Ore Standard (HH:MM),Dettaglio Extra,Ore Extra (HH:MM),Totale Lavoro Netto (HH:MM),Previsione Uscita 9h,Decimale (h),Note\n";
+
+                    this.weekDays.forEach(day => {
+                        const totalDecimal = (day.grandTotalMinutes / 60).toFixed(2);
+                        const totalHM = this.formatMinutesToHM(day.grandTotalMinutes);
+                        const pauseHM = this.formatMinutesToHM(day.pauseMinutes);
+                        const stdHM = this.formatMinutesToHM(day.standardMinutes);
+                        const extraHM = this.formatMinutesToHM(day.extraTotalMinutes);
+
+                        const extraDetails = (day.extraSessions || []).map(s => `${s.startTime}-${s.endTime || 'in corso'} (${s.description || 'Extra'})`).join(' | ');
+
+                        const row = [
+                            `"${day.dayName}"`,
+                            `"${day.dateStr}"`,
+                            `"${day.startTime}"`,
+                            `"${day.breakStart}"`,
+                            `"${day.breakEnd}"`,
+                            `"${day.endTime}"`,
+                            `"${pauseHM}"`,
+                            `"${stdHM}"`,
+                            `"${extraDetails.replace(/"/g, '""')}"`,
+                            `"${extraHM}"`,
+                            `"${totalHM}"`,
+                            `"${day.estimatedExitTime || ''}"`,
+                            `"${totalDecimal}"`,
+                            `"${(day.notes || '').replace(/"/g, '""')}"`
+                        ].join(",");
+                        csvContent += row + "\n";
+                    });
+
+                    const encodedUri = encodeURI(csvContent);
+                    const link = document.createElement("a");
+                    link.setAttribute("href", encodedUri);
+                    link.setAttribute("download", `Report_Presenze_9h_Settimana_${this.currentWeekNumber}_${this.currentYear}.csv`);
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    this.showExportMenu = false;
+                    this.showToast('Report CSV scaricato');
+                },
+
+                exportJSON() {
+                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({
+                        version: 4,
+                        data: this.timeTrackerData,
+                        settings: {
+                            targetDailyHours: this.targetDailyHours,
+                            targetDailyPauseMinutes: this.targetDailyPauseMinutes,
+                            targetWeeklyHours: this.targetWeeklyHours,
+                            includeLiveTime: this.includeLiveTime,
+                            presetStandard: this.presetStandard
+                        }
+                    }, null, 2));
+                    const downloadAnchor = document.createElement('a');
+                    downloadAnchor.setAttribute("href", dataStr);
+                    downloadAnchor.setAttribute("download", `Backup_TimbraOre_9h_${this.formatDateISO(new Date())}.json`);
+                    document.body.appendChild(downloadAnchor);
+                    downloadAnchor.click();
+                    downloadAnchor.remove();
+                    this.showExportMenu = false;
+                    this.showToast('Backup JSON scaricato');
+                },
+
+                importJSON(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const imported = JSON.parse(e.target.result);
+                            if (imported.data) {
+                                this.timeTrackerData = { ...this.timeTrackerData, ...imported.data };
+                                if (imported.settings) {
+                                    this.targetDailyHours = imported.settings.targetDailyHours || 9;
+                                    this.targetDailyPauseMinutes = imported.settings.targetDailyPauseMinutes || 45;
+                                    this.targetWeeklyHours = imported.settings.targetWeeklyHours || 45;
+                                    if (imported.settings.includeLiveTime !== undefined) this.includeLiveTime = imported.settings.includeLiveTime;
+                                    if (imported.settings.presetStandard) this.presetStandard = imported.settings.presetStandard;
+                                }
+                                this.saveData();
+                                this.saveSettings();
+                                this.showToast('Dati ripristinati con successo!');
+                            }
+                        } catch (err) {
+                            this.showToast('Errore nel formato del file');
+                        }
+                    };
+                    reader.readAsText(file);
+                    this.showExportMenu = false;
+                },
+
+                printReport() {
+                    window.print();
+                },
+
+                toggleTheme() {
+                    this.isDark = !this.isDark;
+                    if (this.isDark) {
+                        document.documentElement.classList.add('dark');
+                        localStorage.setItem('timbraore_theme', 'dark');
+                    } else {
+                        document.documentElement.classList.remove('dark');
+                        localStorage.setItem('timbraore_theme', 'light');
+                    }
+                },
+
+                initTheme() {
+                    const savedTheme = localStorage.getItem('timbraore_theme');
+                    if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                        this.isDark = true;
+                        document.documentElement.classList.add('dark');
+                    }
+                },
+
+                showToast(msg) {
+                    this.toastMessage = msg;
+                    setTimeout(() => {
+                        this.toastMessage = '';
+                    }, 2500);
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
